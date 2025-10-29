@@ -1,0 +1,24 @@
+1. Reset sequence
+    - initialise all output ports to 0
+    - AWREADY, ARREADY = 1 as default
+    Note: Fix AxSIZE=2 -> 2^2 = 4 bytes = 32 bits , AxBURST=2'b01 (INCR) at init
+2. Write request channel (AW)
+    - when both AWVALID && AWREADY asserted, store AWADDR in awaddr_reg & AWID in awid_reg
+3. Write data channel (W)
+    - when both WVALID && WREADY asserted, store WDATA in mem_array[awaddr_reg]
+    - need to also consider WSTRB (each bit of WSTRB controls every 8-bit of WDATA)
+        WSTRB[0] -> WDATA[7:0]
+        WSTRB[1] -> WDATA[15:8]
+        WSTRB[2] -> WDATA[23:16]
+        WSTRB[3] -> WDATA[31:24]
+        WSTRB[i] -> WDATA[(i+1)*8-1:i*8]
+    - assert WLAST when len == (AWLEN-1) ->  while (len = 0; len <= AWLEN-1; len++);
+    - when WLAST asserted, BRESP == 2'b00 (OKAY)
+4. Write response channel (B)
+    - when both BVALID && BREADY asserted -> write transaction complete (wr_tran_done = 1)
+5. Read request channel (AR)
+    - when both ARVALID and ARREADY asserted, store ARADDR in araddr_reg & ARID in arid_reg
+6. Read data channel (R)
+    - when both RVALID and RREADY asserted, fetch mem_array[araddr_reg] value and place into RDATA
+    - assert RLAST when len == (ARLEN-1) ->  while (len = 0; len <= ARLEN-1; len++);
+    - when RLAST asserted, RRESP == 2'b00 (OKAY)
