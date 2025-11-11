@@ -55,7 +55,8 @@ module axi_dut #(
 );
 
 // Internal Memory
-localparam MEM_DEPTH = 256;
+//localparam MEM_DEPTH = 256;
+localparam MEM_DEPTH = (1 << ADDR_WIDTH) - 1;
 reg [DATA_WIDTH-1:0] mem_array [MEM_DEPTH-1:0]; //0x000 to 0x3fc assuming each addr store 8 bit and each mem_arr[index] can store 32 bit
 
 // Calculates the number of LSBs to shift to convert byte-address to word-index.
@@ -78,6 +79,7 @@ real num_bytes_addr_store = ADDR_BYTE_SIZE;
 logic [ADDR_WIDTH-1:0] min_hex_addr = '0;
 logic [ADDR_WIDTH-1:0] max_hex_addr = (MEM_DEPTH-1) * num_bytes_mem_row_store / num_bytes_addr_store;
 integer index;
+integer beat_num;
 
 task automatic convert_hex_addr_to_mem_index_num(
     input logic [ADDR_WIDTH-1:0] addr,
@@ -93,190 +95,243 @@ reg [ID_WIDTH-1:0]      latched_awid;
 reg [LEN_WIDTH-1:0]     latched_awlen;
 reg [SIZE_WIDTH-1:0]    latched_awsize;
 reg [BURST_WIDTH-1:0]   latched_awburst;
-reg [ADDR_WIDTH-1:0]    current_aw_addr;  // Current address pointer
-reg [LEN_WIDTH-1:0]     w_beat_count;     // Current beat index (0 to LEN)
-reg                     w_in_progress;    // Write in progress (transfer beats)
-reg                     w_done_pending_b; // Write complete, waiting for B response
-reg                     w_failed;
 
 // Read Registers
 reg [ID_WIDTH-1:0]      latched_arid;
 reg [LEN_WIDTH-1:0]     latched_arlen;
 reg [SIZE_WIDTH-1:0]    latched_arsize;
 reg [BURST_WIDTH-1:0]   latched_arburst;
-reg [ADDR_WIDTH-1:0]    current_ar_addr; // Current address pointer
-reg [LEN_WIDTH-1:0]     r_beat_count;    // Current beat index (0 to LEN)
-reg                     r_data_valid;   // Data is available and ready to be driven
 
-// Combinational Logic for READY/VALID Handshake
-// AWREADY is high when not currently processing a write burst
-assign axi_AWREADY = ~w_in_progress;
-// ARREADY is high when not currently processing a read burst
-assign axi_ARREADY = ~r_data_valid;
-// WREADY is high when address is latched and we are in the data phase
-assign axi_WREADY  = w_in_progress;
+reg [ADDR_WIDTH-1:0]    current_aw_addr; // Current write address pointer
+reg [ADDR_WIDTH-1:0]    current_ar_addr; // Current read address pointer
 
-// Sequential Logic (Memory & State Machine)
+reg wr_addr_start;
+reg wr_addr_done;
+reg wr_data_start;
+reg wr_data_done;
+reg wr_wait_resp;
+reg wr_resp_done;
+
+reg rd_addr_start;
+reg rd_addr_done;
+reg rd_data_start;
+reg rd_data_done;
+
+always_comb begin
+    if (axi_AWVALID && axi_AWREADY)
+        wr_addr_start = 1;
+    else
+        wr_addr_start = 0;
+
+    if (axi_WVALID && axi_WREADY)
+        wr_data_start = 1;
+    else
+        wr_data_start = 0;
+
+    if (wr_addr_done && wr_data_done)
+        wr_wait_resp = 1;
+    else
+        wr_wait_resp = 0;
+
+
+    if(axi_ARVALID && axi_ARREADY)
+        rd_addr_start = 1;
+    else
+        rd_addr_start = 0;
+
+    if (axi_RREADY && rd_addr_done)
+        rd_data_start = 1;
+    else
+        rd_data_start = 0;
+end
+
 always @(posedge axi_ACLK or negedge axi_ARESETn) begin
     if (!axi_ARESETn) begin
         // Reset all internal states and outputs
-        w_in_progress  <= 1'b0;
-        w_done_pending_b <= 1'b0;
-        r_data_valid   <= 1'b0;
-        w_beat_count <= '0;
-        r_beat_count <= '0;
+        wr_addr_done <= 1'b0;
+        wr_data_done <= 1'b0;
+        wr_resp_done <= 1'b0;
+        rd_addr_done <= 1'b0;
+        rd_data_done <= 1'b0;
+        current_aw_addr <= '0;
+        current_ar_addr <= '0;
+
+        latched_awid <= '0;
+        latched_awburst <= '0;
+        latched_awlen <= '0;
+        latched_awsize <= '0;
+
+        axi_AWREADY <= 1'b1;
+        axi_WREADY <= 1'b1;
         axi_BVALID <= 1'b0;
+        axi_BID <= '0;
+        axi_BRESP <= '0;
+
+        latched_arid <= '0;
+        latched_arburst <= '0;
+        latched_arlen <= '0;
+        latched_arsize <= '0;
+
+        axi_ARREADY <= 1'b1;
         axi_RVALID <= 1'b0;
-        axi_RLAST  <= 1'b0;
+        axi_RID <= '0;
+        axi_RDATA <= '0;
+        axi_RRESP <= '0;
+        axi_RLAST <= '0;
 
     end else begin
         // WRITE ADDRESS CHANNEL (AW)
-        if (axi_AWVALID && axi_AWREADY) begin
+        if (wr_addr_start) begin
             if ((axi_AWADDR < min_hex_addr) || (axi_AWADDR > max_hex_addr)) begin
                 convert_hex_addr_to_mem_index_num(axi_AWADDR, index);
-                $error("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
-                w_in_progress     <= 1'b1;
+                $fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
-                // Latch burst parameters
                 latched_awid      <= axi_AWID;
                 latched_awlen     <= axi_AWLEN;
                 latched_awsize    <= axi_AWSIZE;
                 latched_awburst   <= axi_AWBURST;
-
-                // Initialize current address and beat counter
                 current_aw_addr   <= axi_AWADDR;
-                w_beat_count      <= '0;
 
-                // Move to data phase
-                w_in_progress     <= 1'b1;
+                wr_addr_done      <= 1'b1;
+                axi_AWREADY       <= 1'b0;
             end
         end
 
         // WRITE DATA CHANNEL (W)
-        if (w_in_progress && axi_WVALID && axi_WREADY) begin
-            if ((current_aw_addr < min_hex_addr) || (current_aw_addr > max_hex_addr)) begin
-                convert_hex_addr_to_mem_index_num(current_aw_addr, index);
-                $error("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, current_aw_addr, index, max_hex_addr, MEM_DEPTH-1);
-                w_failed           <= 1'b1;
+        if (wr_addr_done && wr_data_start) begin
+            if ((axi_AWADDR < min_hex_addr) || (axi_AWADDR > max_hex_addr)) begin
+                convert_hex_addr_to_mem_index_num(axi_AWADDR, index);
+                $fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
-
             else begin
-                // 1. Write Data to memory
-                for (integer i = 0; i < STROBE_WIDTH; i++) begin
-                    if (axi_WSTRB[i])
-                        // Correctly access index memory array using ADDR_SHIFT
-                        //mem_array[current_aw_addr >> ADDR_SHIFT][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
+                for (beat_num = 0; beat_num < latched_awlen; beat_num++) begin
+                    // 1. Write Data to memory
+                    for (integer i = 0; i < STROBE_WIDTH; i++) begin
+                        if (axi_WSTRB[i])
+                            // Correctly access index memory array using ADDR_SHIFT
+                            //mem_array[current_aw_addr >> ADDR_SHIFT][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
 
-                        convert_hex_addr_to_mem_index_num(current_aw_addr, index);
-                        mem_array[index][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
+                            convert_hex_addr_to_mem_index_num(current_aw_addr, index);
+                            mem_array[index][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
+                    end
+                    //$display("@%0t: [WRITE_DUT, BEAT %0d] addr=0x%h, index %d, data = 0x%h", $time, beat_num, current_aw_addr, current_aw_addr >> ADDR_SHIFT,  axi_WDATA);
+                    $display("@%0t: [WRITE_DUT, BEAT %0d] addr = 0x%h, index = %0d, data = 0x%h", $time, beat_num, current_aw_addr, index,  axi_WDATA);
+
+                    // 2. Update state for next beat
+                    if (axi_WLAST && (beat_num == (latched_awlen-1))) begin
+                        wr_data_done <= 1;
+                        axi_WREADY <= 1'b0;
+                    end else if (latched_awburst === 2'b01) begin // INCR burst
+                        // Calculate next address
+                        //current_aw_addr <= current_aw_addr + (1 << latched_awsize); //address increases per beat size (2^awsize)
+                        current_aw_addr <= current_aw_addr + (1 << latched_awsize) / num_bytes_addr_store;
+                        @(posedge axi_ACLK); //prevents loop frm completing all iters in 1 cycle
+
+                        //current_aw_addr <= current_aw_addr + ((latched_awlen * (1 << latched_awsize))/ DATA_WIDTH/8); //not supposed to increment by total burst size
+                    end
                 end
-                //$display("@%0t: [WRITE_DUT, BEAT %0d] addr=0x%h, index %d, data = 0x%h", $time, w_beat_count, current_aw_addr, current_aw_addr >> ADDR_SHIFT,  axi_WDATA);
-                $display("@%0t: [WRITE_DUT, BEAT %0d] addr = 0x%h, index = %0d, data = 0x%h", $time, w_beat_count, current_aw_addr, index,  axi_WDATA);
             end
-
-            // 2. Update state for next beat
-            if (axi_WLAST && (w_beat_count == latched_awlen)) begin
-                w_in_progress      <= 1'b0; // Data phase complete
-                w_done_pending_b   <= 1'b1; // Start B response process
-            end else if (latched_awburst == 2'b01) begin // INCR burst
-                // Calculate next address
-                //current_aw_addr <= current_aw_addr + (1 << latched_awsize); //address increases per beat size (2^awsize)
-                current_aw_addr <= current_aw_addr + (1 << latched_awsize) / num_bytes_addr_store;
-
-                //current_aw_addr <= current_aw_addr + ((latched_awlen * (1 << latched_awsize))/ DATA_WIDTH/8); //not supposed to increment by total burst size
-                w_beat_count    <= w_beat_count + 1;
-            end
-
         end
 
         // WRITE RESPONSE CHANNEL (B)
-        // Assert BVALID when data is written and B response is pending
-        if (w_failed) begin
-            axi_BVALID <= 1'b1;
-            axi_BRESP  <= 2'b11; // DECERR response
-        end
-        else if (w_done_pending_b) begin
-            axi_BVALID <= 1'b1;
+        if (wr_wait_resp) begin
             axi_BID    <= latched_awid;
             axi_BRESP  <= 2'b00; // OKAY response
+            axi_BVALID <= 1'b1;
         end
 
-        // Deassert BVALID when BREADY is high
         if (axi_BVALID && axi_BREADY) begin
-            axi_BVALID         <= 1'b0;
-            w_done_pending_b   <= 1'b0; // Write transaction complete
-            w_failed           <= 1'b0;
-        end
+            latched_awid <= '0;
+            latched_awburst <= '0;
+            latched_awlen <= '0;
+            latched_awsize <= '0;
 
+            wr_resp_done <= 1'b1;
+            axi_BVALID <= 1'b0;
+            axi_BID <= '0;
+            axi_BRESP <= '0;
+            axi_AWREADY <= 1'b1;
+            axi_WREADY <= 1'b1;
+
+            wr_addr_done <= 1'b0;
+            wr_data_done <= 1'b0;
+            @(posedge axi_ACLK);
+            wr_resp_done <= 1'b0;
+        end
 
         // READ ADDRESS CHANNEL (AR)
-        if (axi_ARVALID && axi_ARREADY) begin
+        if (rd_addr_start) begin
             if ((axi_ARADDR < min_hex_addr) || (axi_ARADDR > max_hex_addr)) begin
                 convert_hex_addr_to_mem_index_num(axi_ARADDR, index);
-                $error("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_ARADDR, index, max_hex_addr, MEM_DEPTH-1);
-                r_data_valid    <= 1'b1;
+                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_ARADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
-                // Latch burst parameters
                 latched_arid      <= axi_ARID;
                 latched_arlen     <= axi_ARLEN;
                 latched_arsize    <= axi_ARSIZE;
                 latched_arburst   <= axi_ARBURST;
 
-                // Initialize current address and beat counter
+                // Initialize current address
                 current_ar_addr   <= axi_ARADDR;
-                r_beat_count      <= '0;
 
-                // Transition to data valid state in the next cycle (modeling latency)
-                r_data_valid    <= 1'b1;
+                rd_addr_done    <= 1'b1;
+                axi_ARREADY     <= 1'b0;
             end
         end
 
         // READ DATA CHANNEL (R)
-        if (r_data_valid) begin
+        if (rd_data_start) begin
+            axi_RVALID      <= 1'b1;
 
             // Data driven every cycle until RLAST is handshaked
-            if (axi_RVALID && axi_RREADY) begin
-                if ((current_ar_addr < min_hex_addr) || (current_ar_addr > max_hex_addr)) begin
-                    convert_hex_addr_to_mem_index_num(current_ar_addr, index);
-                    $error("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, current_ar_addr, index, max_hex_addr, MEM_DEPTH-1);
-                    axi_RRESP  <= 2'b11; // DECERR
-                    axi_RVALID <= 1'b0;
-                    r_data_valid <= 1'b0;
-                end
-                else begin
+            if ((current_ar_addr < min_hex_addr) || (current_ar_addr > max_hex_addr)) begin
+                convert_hex_addr_to_mem_index_num(current_ar_addr, index);
+                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, current_ar_addr, index, max_hex_addr, MEM_DEPTH-1);
+            end
+            else begin
+                for (beat_num = 0; beat_num < latched_arlen; beat_num++) begin
                     // Load data for the current beat
                     //axi_RDATA  <= mem_array[current_ar_addr >> ADDR_SHIFT]; //convert addr to index num of mem_array
                     convert_hex_addr_to_mem_index_num(current_ar_addr, index);
                     axi_RDATA  <= mem_array[index];
                     axi_RID    <= latched_arid;
                     axi_RRESP  <= 2'b00; // OKAY
-                end
 
-                // Increment address for INCR burst
-                if (latched_arburst == 2'b01) begin
-                    //current_ar_addr <= current_ar_addr + (1 << latched_arsize); //calculate addr + 2^arsize
-                    current_ar_addr <= current_ar_addr + (1 << latched_arsize) / num_bytes_addr_store;
+                    // Determine RLAST
+                    if (beat_num == (latched_arlen-1)) begin
+                        axi_RLAST <= 1'b1; // This is the final beat
+                        rd_data_done <= 1'b1;
+                        @(posedge axi_ACLK);
+                        axi_RLAST <= 1'b0;
+                    end else if (latched_arburst === 2'b01) begin // INCR burst
+                        // Calculate next address
+                        //current_ar_addr <= current_ar_addr + (1 << latched_arsize); //calculate addr + 2^arsize
+                        current_ar_addr <= current_ar_addr + (1 << latched_arsize) / num_bytes_addr_store;
+                        @(posedge axi_ACLK); //prevents loop frm completing all iters in 1 cycle
+                    end
                 end
-                // process next beat
-                r_beat_count <= r_beat_count + 1;
-
             end
 
-            // Determine RLAST
-            if (r_beat_count == latched_arlen) begin
-                axi_RLAST <= 1'b1; // This is the final beat
-                if (axi_RREADY) begin // If master accepts the last beat
-                    axi_RVALID <= 1'b0;
-                    r_data_valid <= 1'b0;
-                end
-            end else begin
-                axi_RLAST <= 1'b0;
-                axi_RVALID <= 1'b1; // Keep RVALID high while RLAST is not handshaked
+            if (rd_data_done) begin
+                current_ar_addr   <= '0;
+                rd_addr_done    <= 1'b0;
+
+                latched_arid <= '0;
+                latched_arburst <= '0;
+                latched_arlen <= '0;
+                latched_arsize <= '0;
+
+                axi_ARREADY <= 1'b1;
+                axi_RVALID <= 1'b0;
+                axi_RID <= '0;
+                axi_RDATA <= '0;
+                axi_RRESP <= '0;
+                axi_RLAST <= '0;
+
+                rd_data_done <= 1'b0;
             end
         end
-
     end
 end
 endmodule

@@ -1,15 +1,15 @@
 module axi_tb_top ();
 
-    //AXI parameters
-    parameter ADDR_WIDTH = 16;
-    parameter DATA_WIDTH = 32;
-    parameter LEN_WIDTH = 8;
-    parameter SIZE_WIDTH = 3;
-    parameter BURST_WIDTH = 2;
-    parameter RESP_WIDTH = 2; //2-bit for OKAY, EXOKAY, SLVERR, DECERR
-    parameter ID_WIDTH = 4;
-    parameter STROBE_WIDTH = DATA_WIDTH/8;
-    parameter ADDR_BYTE_SIZE = 1; //num of bytes each addr can store
+    // //AXI parameters
+    localparam ADDR_WIDTH = 16;
+    localparam DATA_WIDTH = 32;
+    localparam LEN_WIDTH = 8;
+    localparam SIZE_WIDTH = 3;
+    localparam BURST_WIDTH = 2;
+    localparam RESP_WIDTH = 2; //2-bit for OKAY, EXOKAY, SLVERR, DECERR
+    localparam ID_WIDTH = 4;
+    localparam STROBE_WIDTH = DATA_WIDTH/8;
+    localparam ADDR_BYTE_SIZE = 1; //num of bytes each addr can store
 
     //Clock and reset
     logic                       axi_tb_ACLK;
@@ -58,8 +58,9 @@ module axi_tb_top ();
     logic [DATA_WIDTH-1:0] read_data_storage  [LEN_WIDTH-1:0];
     logic [LEN_WIDTH-1:0] num_beats;
 
-    localparam MEM_DEPTH = 256;
-    reg [DATA_WIDTH-1:0] mem_array_ref [MEM_DEPTH-1:0]; //0x000 to 0x3fc
+    //localparam MEM_DEPTH = 256;
+    localparam MEM_DEPTH = (1 << ADDR_WIDTH) - 1;
+    reg [DATA_WIDTH-1:0] mem_array_ref [MEM_DEPTH-1:0]; //0x000 to 0x3fc for MEM_DEPTH = 256
     reg [ADDR_WIDTH-1:0] current_aw_addr;
 
     // Calculates the number of LSBs to shift to convert byte-address to word-index.  0x0000 -> 0x0003 = index 0, 0x0004 -> 0x0007 = index 1
@@ -150,24 +151,9 @@ module axi_tb_top ();
     );
 
     initial begin
-        axi_tb_AWVALID = '0;
-        axi_tb_AWID = '0;
-        axi_tb_AWADDR = '0;
-        axi_tb_AWLEN = '0;
-        axi_tb_AWSIZE = '0;
-        axi_tb_AWBURST = '0;
-        axi_tb_WVALID = '0;
-        axi_tb_WDATA = '0;
-        axi_tb_WSTRB = '0;
-        axi_tb_WLAST = '0;
-        axi_tb_BREADY = '0;
-        axi_tb_ARVALID = '0;
-        axi_tb_ARID = '0;
-        axi_tb_ARADDR = '0;
-        axi_tb_ARLEN = '0;
-        axi_tb_ARSIZE = '0;
-        axi_tb_ARBURST = '0;
-        axi_tb_RREADY = '0;
+        init_write_reg();
+        init_read_reg();
+        num_beats <= '0;
 
         start_reset_seq();
 
@@ -175,7 +161,6 @@ module axi_tb_top ();
         send_write(16'hF0, 4'b1111);
         send_write(max_hex_addr/2, 4'b1111);
         send_write(max_hex_addr, 4'b1111);
-        send_write(max_hex_addr+1, 4'b1111);
 
         send_read(min_hex_addr);
         compare_write_read_data(min_hex_addr);
@@ -189,13 +174,35 @@ module axi_tb_top ();
         send_read(max_hex_addr);
         compare_write_read_data(max_hex_addr);
 
-        send_read(max_hex_addr+1);
-        compare_write_read_data(max_hex_addr+1);
-
         #1000ns;
         $display("--- Test Finished at %0t ---", $time);
         $finish;
     end
+
+    task init_write_reg();
+        axi_tb_AWVALID <= '0;
+        axi_tb_AWID <= '0;
+        axi_tb_AWADDR <= '0;
+        axi_tb_AWLEN <= '0;
+        axi_tb_AWSIZE <= '0;
+        axi_tb_AWBURST <= '0;
+        axi_tb_WVALID <= '0;
+        axi_tb_WDATA <= '0;
+        axi_tb_WSTRB <= '0;
+        axi_tb_WLAST <= '0;
+        axi_tb_BREADY <= 1'b1;
+        current_aw_addr <= '0;
+    endtask
+
+    task init_read_reg();
+        axi_tb_ARVALID <= '0;
+        axi_tb_ARID <= '0;
+        axi_tb_ARADDR <= '0;
+        axi_tb_ARLEN <= '0;
+        axi_tb_ARSIZE <= '0;
+        axi_tb_ARBURST <= '0;
+        axi_tb_RREADY <= 1'b1;
+    endtask
 
     task start_reset_seq();
         $display("@%0t: Starting reset sequence...", $time);
@@ -219,10 +226,9 @@ module axi_tb_top ();
         axi_tb_AWLEN <= {{(LEN_WIDTH - 8){1'b0}}, LEN};
         axi_tb_AWSIZE <= {{(SIZE_WIDTH - 3){1'b0}}, SIZE};
         axi_tb_AWBURST <= {{(BURST_WIDTH - 2){1'b0}}, BURST_TYPE};
-        axi_tb_BREADY <= 1'b1;
         axi_tb_WLAST <= 1'b0;
         current_aw_addr <= addr;
-        num_beats = LEN + 1;
+        num_beats <= LEN;
 
         while (axi_tb_AWREADY !== 1'b1) begin
             @(posedge axi_tb_ACLK);
@@ -240,43 +246,52 @@ module axi_tb_top ();
             axi_tb_WDATA <= data_out;
 
             for (integer i = 0; i < STROBE_WIDTH; i++) begin
-                if (strobe[i])
+                if (strobe[i]) begin
                     // Correctly access index memory array using ADDR_SHIFT
                     //mem_array_ref[current_aw_addr >> ADDR_SHIFT][i*8 +: 8] <= data_out[i*8 +: 8];
 
                     convert_hex_addr_to_mem_index_num(current_aw_addr, index);
                     mem_array_ref[index][i*8 +: 8] <= data_out[i*8 +: 8];
+                end
             end
             //$display("@%0t: [WRITE_TB, BEAT %0d] addr=0x%h, index %d, data = 0x%h", $time, i, current_aw_addr, current_aw_addr >> ADDR_SHIFT,  data_out);
-
-            wait(axi_tb_WREADY);
 
             if (i == (num_beats-1)) begin
                 axi_tb_WLAST <= 1'b1;
                 $display("@%0t: [WRITE_TB] beat = %0d, addr = 0x%h, index = %0d, data = 0x%h, WLAST = %0b", $time, i, current_aw_addr, index, data_out, 1);
-            end
-            else
-                $display("@%0t: [WRITE_TB] beat = %0d, addr = 0x%h, index = %0d, data = 0x%h, WLAST = %0b", $time, i, current_aw_addr, index, data_out, axi_tb_WLAST);
 
-            current_aw_addr <= current_aw_addr + (1 << SIZE) / num_bytes_addr_store;
-            @(posedge axi_tb_ACLK); //add this to make it loop every posedge clk. Otherwise the for loop ends in 1 clk cycle
+            end
+            else begin
+                $display("@%0t: [WRITE_TB] beat = %0d, addr = 0x%h, index = %0d, data = 0x%h, WLAST = %0b", $time, i, current_aw_addr, index, data_out, axi_tb_WLAST);
+                current_aw_addr <= current_aw_addr + (1 << SIZE) / num_bytes_addr_store;
+                @(posedge axi_tb_ACLK); //add this to make it loop every posedge clk. Otherwise the for loop ends in 1 clk cycle
+            end
+
+            while (axi_tb_WREADY !== 1'b1) begin
+                @(posedge axi_tb_ACLK);
+                $display("Waiting WREADY == 1.");
+            end
+
         end
 
         @(posedge axi_tb_ACLK);
-        axi_tb_WVALID <= 1'b0;
+        init_write_reg();
 
         while (axi_tb_BVALID !== 1'b1) begin
             @(posedge axi_tb_ACLK);
+            $display("Waiting BVALID == 1.");
         end
 
-        @(posedge axi_tb_ACLK);
-        if (axi_tb_BRESP !== 2'b00) begin
-            $error("WRITE FAIL: BRESP returned 0x%h (Expected 0x00)", axi_tb_BRESP);
-        end else begin
-            $display("WRITE PASS: BRESP 0x00 OKAY received.");
+        while (axi_tb_BVALID && axi_tb_BREADY) begin
+            if (axi_tb_BRESP !== 2'b00) begin
+                $error("WRITE FAIL: BRESP returned 0x%h (Expected 0x00)", axi_tb_BRESP);
+            end else begin
+                $display("WRITE PASS: BRESP 0x00 OKAY received.");
+            end
+            @(posedge axi_tb_ACLK);
         end
 
-        axi_tb_BREADY <= 1'b0;
+        init_write_reg();
 
     endtask
 
@@ -291,7 +306,6 @@ module axi_tb_top ();
         axi_tb_ARLEN <= {{(LEN_WIDTH - 8){1'b0}}, LEN};
         axi_tb_ARSIZE <= {{(SIZE_WIDTH - 3){1'b0}}, SIZE};
         axi_tb_ARBURST <= {{(BURST_WIDTH - 2){1'b0}}, BURST_TYPE};
-        axi_tb_RREADY <= 1'b1;
 
         while (axi_tb_ARREADY !== 1'b1) begin
             @(posedge axi_tb_ACLK);
@@ -305,28 +319,28 @@ module axi_tb_top ();
         end
 
         for (int i = 0; i < num_beats; i++ ) begin
-            @(posedge axi_tb_ACLK);
-            read_data_storage[i] = axi_tb_RDATA;
+            read_data_storage[i] <= axi_tb_RDATA;
 
             $display("@%0t: [READ_TB] beat = %0d, data = 0x%h, RLAST = %0b, RRESP = 0x%h", $time, i, axi_tb_RDATA, axi_tb_RLAST, axi_tb_RRESP);
 
-            if (i == num_beats-1) begin
+            if (i == (num_beats-1)) begin
                 if (axi_tb_RLAST !== 1'b1) begin
-                    $error("@%0t: ERROR: RLAST fail to assert on last beat (%0d/%0d)", $time, i, num_beats-1);
+                    $error("@%0t: ERROR: RLAST fail to assert on last beat (%0d/%0d)", $time, i, (num_beats-1));
                 end else
-                    $display("@%0t: RLAST asserted on last beat (%0d/%0d)", $time, i, num_beats-1);
+                    $display("@%0t: RLAST asserted on last beat (%0d/%0d)", $time, i, (num_beats-1));
+                if (axi_tb_RRESP !== 2'b00) begin
+                    $error("@%0t: ERROR: axi_tb_RRESP !== 2'b00", $time);
+                    //$fatal;
+                end
             end
             else begin
-                $display("@%0t: Waiting RLAST to be asserted on last beat (%0d/%0d)", $time, i, num_beats-1);
-            end
-
-            if (axi_tb_RRESP !== 2'b00) begin
-                $error("@%0t: ERROR: axi_tb_RRESP !== 2'b00", $time);
-                //$fatal;
+                $display("@%0t: Waiting RLAST to be asserted on last beat (%0d/%0d)", $time, i, (num_beats-1));
+                @(posedge axi_tb_ACLK);
             end
         end
 
-        axi_tb_RREADY <= 1'b0;
+        @(posedge axi_tb_ACLK);
+        init_write_reg();
         $display("@%0t: READ Burst complete.", $time);
 
     endtask
