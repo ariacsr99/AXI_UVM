@@ -15,11 +15,11 @@ AXI UVM testbench
 3. Write data channel (W)
     - when both WVALID && WREADY asserted, store WDATA in local memory array
     - to also consider WSTRB (each bit of WSTRB controls every 8-bit of WDATA)
-        WSTRB[0] -> WDATA[7:0]
-        WSTRB[1] -> WDATA[15:8]
-        WSTRB[2] -> WDATA[23:16]
-        WSTRB[3] -> WDATA[31:24]
-        WSTRB[i] -> WDATA[(i+1)*8-1:i*8]
+      WSTRB[0] -> WDATA[7:0]
+      WSTRB[1] -> WDATA[15:8]
+      WSTRB[2] -> WDATA[23:16]
+      WSTRB[3] -> WDATA[31:24]
+      WSTRB[i] -> WDATA[8(i+1)-1:8(i)]
     - assert WLAST when last beat is transferred
 
 4. Write response channel (B)
