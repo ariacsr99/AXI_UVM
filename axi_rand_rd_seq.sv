@@ -38,33 +38,39 @@ class axi_rand_rd_seq #(
                 `uvm_fatal(get_full_name(), "No write info received from write sequence!")
 
         foreach (wr_struct_queue[i]) begin
-            // 1. Create the transaction object
-            rd_tr = axi_read_trans #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                 .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                 .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE)
-                                )::type_id::create($sformatf("rd_tr_%0d", i));
+            string tr_name = $sformatf("rd_tr_%0d", i);
 
-            // Randomize with constraints
+            // Create the transaction object
+            rd_tr = axi_read_trans #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
+                                     .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                     .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE)
+                                    )::type_id::create(tr_name);
+
+            // Randomize with constraints based on the write transaction
             if (!rd_tr.randomize() with {
                 axi_tb_ADDR == wr_struct_queue[i].addr;
-                axi_tb_LEN   == wr_struct_queue[i].len;
-                axi_tb_SIZE  == wr_struct_queue[i].size;
-                axi_tb_ID    == wr_struct_queue[i].id;
+                axi_tb_LEN  == wr_struct_queue[i].len;
+                axi_tb_SIZE == wr_struct_queue[i].size;
+                axi_tb_ID   == wr_struct_queue[i].id;
                 axi_tb_BURST == wr_struct_queue[i].burst;
                 }) begin
                 `uvm_error(get_full_name(), "Randomization with constraints failed.")
             end
-            // assert(rd_tr.randomize() with { axi_tb_BURST == 2'b10; axi_tb_LEN == 8; axi_tb_SIZE == 2; });
 
-            //Send the item to the connected read driver
+            // Send the item to the connected read driver
+            `uvm_info(get_full_name(), $sformatf("Starting READ Request: ARADDR=0x%0h, ARLEN=%0d, ARSIZE=%0d, ARID=0x%0h, ARBURST=0x%0h", rd_tr.axi_tb_ADDR, rd_tr.axi_tb_LEN, rd_tr.axi_tb_SIZE, rd_tr.axi_tb_ID, rd_tr.axi_tb_BURST), UVM_MEDIUM)
             start_item(rd_tr);
             finish_item(rd_tr);
 
-            // Log the result
             `uvm_info(get_full_name(),
-                    $sformatf("Random READ transaction completed. ARADDR: 0x%0h, ARID: 0x%0h, ARLEN: 0x%0h, ARSIZE: 0x%0h, ARBURST: 2'b%0b, RDATA: 0x%0h",
-                                rd_tr.axi_tb_ADDR, rd_tr.axi_tb_ID, rd_tr.axi_tb_LEN, rd_tr.axi_tb_SIZE, rd_tr.axi_tb_BURST, rd_tr.axi_tb_RDATA),
-                    UVM_MEDIUM)
+                      $sformatf("Random READ transaction completed. ARADDR=0x%0h, ARLEN=%0d, ARSIZE=%0d, ARID=0x%0h, ARBURST=0x%0h, Total Beats: %0d",
+                                rd_tr.axi_tb_ADDR, rd_tr.axi_tb_LEN, rd_tr.axi_tb_SIZE, rd_tr.axi_tb_ID, rd_tr.axi_tb_BURST, rd_tr.axi_tb_RDATA.size()),
+                      UVM_MEDIUM)
+
+            foreach (rd_tr.axi_tb_RDATA[k]) begin
+                 `uvm_info(get_full_name(), $sformatf("  --> Beat %0d Data=0x%0h, Resp=0x%0h", k, rd_tr.axi_tb_RDATA[k], rd_tr.axi_tb_RRESP[k]), UVM_FULL)
+            end
+
         end
     endtask
 

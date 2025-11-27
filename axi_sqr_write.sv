@@ -1,5 +1,5 @@
 //Acts as a transaction-level arbiter and manager.
-//It sits between your sequences (which generate the high-level stimulus) and the driver (which translates that stimulus into pin-wiggles)
+//It sits between sequences (which generate the high-level stimulus) and the driver (which translates that stimulus into pin-level activity)
 //Top-level test defines what sequences to run and when to start them, but the sequencer determines how the transactions from those sequences are delivered to the driver
 class axi_sqr_write #(
     parameter ADDR_WIDTH = 16,

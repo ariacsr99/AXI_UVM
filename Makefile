@@ -42,6 +42,7 @@ RUN_OPTIONS = +fsdb+force +fsdb+parameter +fsdb+sva_success +fsdb+sva_status
 ifeq ($(UVM_TB),1)
 	VERIF_FILELIST = -f $(CURRENT_DIR)/axi_uvm_flist.f
 	TOP_MODULE = axi_uvm_tb
+	UVM_DPI_OPTS = -ntb_opts uvm-1.2
 else
 	VERIF_FILELIST = -f $(CURRENT_DIR)/axi_flist.f
 	TOP_MODULE = axi_tb_top
@@ -83,7 +84,7 @@ elab:
 	cd $(builddir_final) && \
 	vcs \
 		$(TOP_MODULE) \
-		$(VCS_OPTIONS) $(COV_OPTIONS) \
+		$(VCS_OPTIONS) $(COV_OPTIONS) $(UVM_DPI_OPTS) \
 		-l $(builddir_logs)/$@.log \
 		-partcomp -fastpartcomp=j80 \
 		-cm_dir $(builddir_final)/simv.vdb \
@@ -116,7 +117,7 @@ buildrun_3step_uvm_tb:
 	make compile_axi_dut
 	make compile_axi_tb UVM_TB=1
 	make elab UVM_TB=1
-	make run
+	make run UVM_TB=1
 
 
 #####################################

@@ -22,6 +22,8 @@ package axi_pkg;
     `include "axi_write_trans.sv"
     `include "axi_read_trans.sv"
 
+    `include "axi_burst_trans.sv"
+
     // Declare distinct analysis implementation types for each channel
     `uvm_analysis_imp_decl(_AW)
     `uvm_analysis_imp_decl(_W)
@@ -29,7 +31,7 @@ package axi_pkg;
     `uvm_analysis_imp_decl(_AR)
     `uvm_analysis_imp_decl(_R)
 
-    // Order matters
+    // Compilation order matters
     `include "axi_write_seq.sv"
     `include "axi_read_seq.sv"
     `include "axi_rand_wr_seq.sv"

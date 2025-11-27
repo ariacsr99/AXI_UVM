@@ -62,16 +62,16 @@ reg [DATA_WIDTH-1:0] mem_array [MEM_DEPTH-1:0]; //0x000 to 0x3fc assuming each a
 // Calculates the number of LSBs to shift to convert byte-address to word-index.
 // Eg: 0x0000 -> 0x0003 = index 0, 0x0004 -> 0x0007 = index 1 assuming each addr store 8 bit and each mem_arr[index] can store 32 bit
 // Equivalent to log2(DATA_WIDTH / 8). For 32-bit width, this returns 2.
-function automatic integer get_addr_shift_amount();
-    integer shift = 0;
-    integer word_bytes = DATA_WIDTH / 8;
-    while (word_bytes > 1) begin
-        word_bytes = word_bytes >> 1;
-        shift = shift + 1;
-    end
-    return shift;
-endfunction
-localparam ADDR_SHIFT = get_addr_shift_amount();
+// function automatic integer get_addr_shift_amount();
+//     integer shift = 0;
+//     integer word_bytes = DATA_WIDTH / 8;
+//     while (word_bytes > 1) begin
+//         word_bytes = word_bytes >> 1;
+//         shift = shift + 1;
+//     end
+//     return shift;
+// endfunction
+// localparam ADDR_SHIFT = get_addr_shift_amount();
 
 //Alternative to convert hex address to mem_array index
 real num_bytes_mem_row_store = DATA_WIDTH / 8;
@@ -79,16 +79,13 @@ real num_bytes_addr_store = ADDR_BYTE_SIZE;
 logic [ADDR_WIDTH-1:0] min_hex_addr = '0;
 logic [ADDR_WIDTH-1:0] max_hex_addr = (MEM_DEPTH-1) * num_bytes_mem_row_store / num_bytes_addr_store;
 integer index;
-integer beat_num;
+integer rd_index;
+integer wr_beat_num;
+integer next_rd_beat_num;
 
-task automatic convert_hex_addr_to_mem_index_num(
-    input logic [ADDR_WIDTH-1:0] addr,
-    output int index_num
-);
-    //addr * num bytes each addr can store = index * num bytes each mem_arr row can store
-    index_num = addr * (num_bytes_addr_store / num_bytes_mem_row_store);
-endtask
-
+function int convert_hex_addr_to_mem_index_num(logic [ADDR_WIDTH-1:0] addr);
+    return addr * (num_bytes_addr_store / num_bytes_mem_row_store);
+endfunction
 
 // Write Registers
 reg [ID_WIDTH-1:0]      latched_awid;
@@ -103,7 +100,7 @@ reg [SIZE_WIDTH-1:0]    latched_arsize;
 reg [BURST_WIDTH-1:0]   latched_arburst;
 
 reg [ADDR_WIDTH-1:0]    current_aw_addr; // Current write address pointer
-reg [ADDR_WIDTH-1:0]    current_ar_addr; // Current read address pointer
+reg [ADDR_WIDTH-1:0]    next_ar_addr; // Next read address pointer
 
 reg wr_addr_start;
 reg wr_addr_done;
@@ -116,6 +113,9 @@ reg rd_addr_start;
 reg rd_addr_done;
 reg rd_data_start;
 reg rd_data_done;
+
+assign index = convert_hex_addr_to_mem_index_num(current_aw_addr);
+assign rd_index = convert_hex_addr_to_mem_index_num(next_ar_addr);
 
 always_comb begin
     if (axi_AWVALID && axi_AWREADY)
@@ -139,7 +139,7 @@ always_comb begin
     else
         rd_addr_start = 0;
 
-    if (axi_RREADY && rd_addr_done)
+    if (axi_RREADY && axi_RVALID)
         rd_data_start = 1;
     else
         rd_data_start = 0;
@@ -154,7 +154,7 @@ always @(posedge axi_ACLK or negedge axi_ARESETn) begin
         rd_addr_done <= 1'b0;
         rd_data_done <= 1'b0;
         current_aw_addr <= '0;
-        current_ar_addr <= '0;
+        next_ar_addr <= '0;
 
         latched_awid <= '0;
         latched_awburst <= '0;
@@ -183,50 +183,56 @@ always @(posedge axi_ACLK or negedge axi_ARESETn) begin
         // WRITE ADDRESS CHANNEL (AW)
         if (wr_addr_start) begin
             if ((axi_AWADDR < min_hex_addr) || (axi_AWADDR > max_hex_addr)) begin
-                convert_hex_addr_to_mem_index_num(axi_AWADDR, index);
-                $fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
+                //convert_hex_addr_to_mem_index_num(axi_AWADDR, index);
+                $fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, max_hex_addr, MEM_DEPTH-1);
+                //$fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
                 latched_awid      <= axi_AWID;
-                latched_awlen     <= axi_AWLEN;
+                latched_awlen     <= axi_AWLEN + 1;
                 latched_awsize    <= axi_AWSIZE;
                 latched_awburst   <= axi_AWBURST;
                 current_aw_addr   <= axi_AWADDR;
 
                 wr_addr_done      <= 1'b1;
                 axi_AWREADY       <= 1'b0;
+                wr_beat_num       <= 0;
             end
         end
 
         // WRITE DATA CHANNEL (W)
         if (wr_addr_done && wr_data_start) begin
-            if ((axi_AWADDR < min_hex_addr) || (axi_AWADDR > max_hex_addr)) begin
-                convert_hex_addr_to_mem_index_num(axi_AWADDR, index);
+
+            if ((current_aw_addr < min_hex_addr) || (current_aw_addr > max_hex_addr)) begin
+                //convert_hex_addr_to_mem_index_num(current_aw_addr, index);
+
                 $fatal("@%0t: ERROR: [WRITE_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_AWADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
-                for (beat_num = 0; beat_num < latched_awlen; beat_num++) begin
-                    // 1. Write Data to memory
+                if (wr_beat_num < latched_awlen) begin
+                    // Write Data to memory
                     for (integer i = 0; i < STROBE_WIDTH; i++) begin
                         if (axi_WSTRB[i])
                             // Correctly access index memory array using ADDR_SHIFT
                             //mem_array[current_aw_addr >> ADDR_SHIFT][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
 
-                            convert_hex_addr_to_mem_index_num(current_aw_addr, index);
+                            //convert_hex_addr_to_mem_index_num(current_aw_addr, index);
+                            //index = convert_hex_addr_to_mem_index_num(current_aw_addr);
                             mem_array[index][i*8 +: 8] <= axi_WDATA[i*8 +: 8];
                     end
-                    //$display("@%0t: [WRITE_DUT, BEAT %0d] addr=0x%h, index %d, data = 0x%h", $time, beat_num, current_aw_addr, current_aw_addr >> ADDR_SHIFT,  axi_WDATA);
-                    $display("@%0t: [WRITE_DUT, BEAT %0d] addr = 0x%h, index = %0d, data = 0x%h", $time, beat_num, current_aw_addr, index,  axi_WDATA);
+                    //$display("@%0t: [WRITE_DUT, BEAT %0d] addr=0x%h, index %d, data = 0x%h", $time, wr_beat_num, current_aw_addr, current_aw_addr >> ADDR_SHIFT,  axi_WDATA);
+                    $display("@%0t: [WRITE_DUT, BEAT %0d] addr = 0x%h, index = %0d, data = 0x%h", $time, wr_beat_num, current_aw_addr, index,  axi_WDATA);
 
-                    // 2. Update state for next beat
-                    if (axi_WLAST && (beat_num == (latched_awlen-1))) begin
+                    // Update state for next beat
+                    if (axi_WLAST && (wr_beat_num == (latched_awlen-1))) begin
                         wr_data_done <= 1;
                         axi_WREADY <= 1'b0;
-                    end else if (latched_awburst === 2'b01) begin // INCR burst
+                    end
+                    else if (latched_awburst === 2'b01) begin // INCR burst
                         // Calculate next address
                         //current_aw_addr <= current_aw_addr + (1 << latched_awsize); //address increases per beat size (2^awsize)
                         current_aw_addr <= current_aw_addr + (1 << latched_awsize) / num_bytes_addr_store;
-                        @(posedge axi_ACLK); //prevents loop frm completing all iters in 1 cycle
+                        wr_beat_num <= wr_beat_num + 1;
 
                         //current_aw_addr <= current_aw_addr + ((latched_awlen * (1 << latched_awsize))/ DATA_WIDTH/8); //not supposed to increment by total burst size
                     end
@@ -263,74 +269,73 @@ always @(posedge axi_ACLK or negedge axi_ARESETn) begin
         // READ ADDRESS CHANNEL (AR)
         if (rd_addr_start) begin
             if ((axi_ARADDR < min_hex_addr) || (axi_ARADDR > max_hex_addr)) begin
-                convert_hex_addr_to_mem_index_num(axi_ARADDR, index);
-                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_ARADDR, index, max_hex_addr, MEM_DEPTH-1);
+                //convert_hex_addr_to_mem_index_num(axi_ARADDR, index);
+                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, max_addr = 0x%h, max_index = %d", $time, axi_ARADDR, max_hex_addr, MEM_DEPTH-1);
+                //$fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, axi_ARADDR, index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
                 latched_arid      <= axi_ARID;
-                latched_arlen     <= axi_ARLEN;
+                latched_arlen     <= axi_ARLEN + 1;
                 latched_arsize    <= axi_ARSIZE;
                 latched_arburst   <= axi_ARBURST;
 
-                // Initialize current address
-                current_ar_addr   <= axi_ARADDR;
-
+                next_ar_addr   <= axi_ARADDR;
                 rd_addr_done    <= 1'b1;
                 axi_ARREADY     <= 1'b0;
+
+                next_rd_beat_num <= 0;
             end
         end
 
         // READ DATA CHANNEL (R)
-        if (rd_data_start) begin
-            axi_RVALID      <= 1'b1;
-
+        if (rd_addr_done) begin
+            axi_RVALID <= 1'b1;
             // Data driven every cycle until RLAST is handshaked
-            if ((current_ar_addr < min_hex_addr) || (current_ar_addr > max_hex_addr)) begin
-                convert_hex_addr_to_mem_index_num(current_ar_addr, index);
-                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, current_ar_addr, index, max_hex_addr, MEM_DEPTH-1);
+            if ((next_ar_addr < min_hex_addr) || (next_ar_addr > max_hex_addr)) begin
+                //convert_hex_addr_to_mem_index_num(next_ar_addr, index);
+                $fatal("@%0t: ERROR: [READ_INVALID_ADDR] addr = 0x%h, index = %d, max_addr = 0x%h, max_index = %d", $time, next_ar_addr, rd_index, max_hex_addr, MEM_DEPTH-1);
             end
             else begin
-                for (beat_num = 0; beat_num < latched_arlen; beat_num++) begin
-                    // Load data for the current beat
-                    //axi_RDATA  <= mem_array[current_ar_addr >> ADDR_SHIFT]; //convert addr to index num of mem_array
-                    convert_hex_addr_to_mem_index_num(current_ar_addr, index);
-                    axi_RDATA  <= mem_array[index];
-                    axi_RID    <= latched_arid;
-                    axi_RRESP  <= 2'b00; // OKAY
+                // Load data for the next beat
+                //axi_RDATA  <= mem_array[next_ar_addr >> ADDR_SHIFT]; //convert addr to index num of mem_array
+                //convert_hex_addr_to_mem_index_num(next_ar_addr, index);
+                axi_RDATA  <= mem_array[rd_index];
+                axi_RID    <= latched_arid;
+                axi_RRESP  <= 2'b00; // OKAY
 
-                    // Determine RLAST
-                    if (beat_num == (latched_arlen-1)) begin
-                        axi_RLAST <= 1'b1; // This is the final beat
-                        rd_data_done <= 1'b1;
-                        @(posedge axi_ACLK);
-                        axi_RLAST <= 1'b0;
-                    end else if (latched_arburst === 2'b01) begin // INCR burst
-                        // Calculate next address
-                        //current_ar_addr <= current_ar_addr + (1 << latched_arsize); //calculate addr + 2^arsize
-                        current_ar_addr <= current_ar_addr + (1 << latched_arsize) / num_bytes_addr_store;
-                        @(posedge axi_ACLK); //prevents loop frm completing all iters in 1 cycle
-                    end
+                // Determine RLAST
+                if (next_rd_beat_num == (latched_arlen-1)) begin
+                    axi_RLAST <= 1'b1; // This is for the final beat
+                    rd_data_done <= 1'b1;
                 end
+                if (latched_arburst === 2'b01) begin // INCR burst
+                    // Calculate next address
+
+                    //next_ar_addr <= next_ar_addr + (1 << latched_arsize); //calculate addr + 2^arsize
+                    next_ar_addr <= next_ar_addr + (1 << latched_arsize) / num_bytes_addr_store;
+
+                end
+                next_rd_beat_num <= next_rd_beat_num + 1;
             end
+        end
 
-            if (rd_data_done) begin
-                current_ar_addr   <= '0;
-                rd_addr_done    <= 1'b0;
+        if (rd_data_done) begin
+            next_ar_addr   <= '0;
+            rd_addr_done    <= 1'b0;
 
-                latched_arid <= '0;
-                latched_arburst <= '0;
-                latched_arlen <= '0;
-                latched_arsize <= '0;
+            latched_arid <= '0;
+            latched_arburst <= '0;
+            latched_arlen <= '0;
+            latched_arsize <= '0;
 
-                axi_ARREADY <= 1'b1;
-                axi_RVALID <= 1'b0;
-                axi_RID <= '0;
-                axi_RDATA <= '0;
-                axi_RRESP <= '0;
-                axi_RLAST <= '0;
+            axi_ARREADY <= 1'b1;
+            axi_RVALID <= 1'b0;
+            axi_RID <= '0;
+            axi_RDATA <= '0;
+            axi_RRESP <= '0;
+            axi_RLAST <= '0;
 
-                rd_data_done <= 1'b0;
-            end
+            rd_data_done <= 1'b0;
         end
     end
 end

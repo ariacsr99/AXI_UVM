@@ -74,19 +74,23 @@ module axi_uvm_tb;
         .axi_RLAST(m_axi_if.axi_tb_RLAST)
     );
 
-    // bind axi_dut axi_assertions #(
-    //     .ADDR_WIDTH(ADDR_WIDTH),
-    //     .DATA_WIDTH(DATA_WIDTH),
-    //     .LEN_WIDTH(LEN_WIDTH),
-    //     .SIZE_WIDTH(SIZE_WIDTH),
-    //     .BURST_WIDTH(BURST_WIDTH),
-    //     .RESP_WIDTH(RESP_WIDTH),
-    //     .ID_WIDTH(ID_WIDTH),
-    //     .STROBE_WIDTH(STROBE_WIDTH),
-    //     .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE)
-    // ) assertion_chk (
-    //     .*
-    // );
+    bind axi_dut axi_assertions #(
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .LEN_WIDTH(LEN_WIDTH),
+        .SIZE_WIDTH(SIZE_WIDTH),
+        .BURST_WIDTH(BURST_WIDTH),
+        .RESP_WIDTH(RESP_WIDTH),
+        .ID_WIDTH(ID_WIDTH),
+        .STROBE_WIDTH(STROBE_WIDTH),
+        .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE)
+    ) assertion_chk (
+        .*,
+        .wr_beat_num(wr_beat_num),
+        .next_rd_beat_num(next_rd_beat_num),
+        .latched_awlen(latched_awlen),
+        .latched_arlen(latched_arlen)
+    );
 
     initial begin
         m_axi_if.axi_tb_AWVALID = '0;

@@ -46,14 +46,14 @@ class axi_monitor #(
     virtual task run_phase(uvm_phase phase);
         fork
             collect_aw_channel(); // Write Address Request
-            collect_w_channel();  // Write Data Stream
+            collect_w_channel();  // Write Data
             collect_b_channel();  // Write Response
             collect_ar_channel(); // Read Address Request
-            collect_r_channel();  // Read Data Stream
+            collect_r_channel();  // Read Data
         join_none
     endtask
 
-    // 1. Write Address Request (AW Channel)
+    // Write Address Request (AW Channel)
     virtual protected task collect_aw_channel();
         forever begin
             axi_write_trans wr_req_dut;
@@ -64,8 +64,8 @@ class axi_monitor #(
             if (vif.axi_tb_AWVALID && vif.axi_tb_AWREADY) begin
             // Sample the signals right after the handshake
             wr_req_dut = axi_write_trans#(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                         .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                         .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_req_dut");
+                                             .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                             .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_req_dut");
 
             wr_req_dut.axi_tb_ADDR = vif.axi_tb_AWADDR;
             wr_req_dut.axi_tb_ID = vif.axi_tb_AWID;
@@ -73,14 +73,14 @@ class axi_monitor #(
             wr_req_dut.axi_tb_SIZE = vif.axi_tb_AWSIZE;
             wr_req_dut.axi_tb_BURST = vif.axi_tb_AWBURST;
 
-            `uvm_info(get_type_name(), $sformatf("Monitored WRITE REQ: awaddr=%0h, awid=%0h, awlen=%0h, awsize=%0h, awburst=%0h", wr_req_dut.axi_tb_ADDR, wr_req_dut.axi_tb_ID, wr_req_dut.axi_tb_LEN, wr_req_dut.axi_tb_SIZE, wr_req_dut.axi_tb_BURST), UVM_MEDIUM)
+            `uvm_info(get_type_name(), $sformatf("Monitored WRITE REQ: AWADDR=0x%0h, AWID=0x%0h, AWLEN=0x%0h, AWSIZE=0x%0h, AWBURST=0x%0h", wr_req_dut.axi_tb_ADDR, wr_req_dut.axi_tb_ID, wr_req_dut.axi_tb_LEN, wr_req_dut.axi_tb_SIZE, wr_req_dut.axi_tb_BURST), UVM_MEDIUM)
 
             mon_wr_req_ap.write(wr_req_dut);
             end
         end
     endtask
 
-    // 2. Write Data Stream (W Channel) - Handles bursts
+    // Write Data (W Channel)
     virtual protected task collect_w_channel();
         forever begin
             axi_write_trans wr_data_dut;
@@ -90,20 +90,28 @@ class axi_monitor #(
 
             if(vif.axi_tb_WVALID && vif.axi_tb_WREADY) begin
                 wr_data_dut = axi_write_trans#(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                            .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                            .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_data_dut");
+                                                 .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                                 .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_data_dut");
 
-                wr_data_dut.axi_tb_WDATA = vif.axi_tb_WDATA;
-                wr_data_dut.axi_tb_WSTRB = vif.axi_tb_WSTRB;
+                // axi_write_trans can hold a burst (dynamic array),
+                // but the monitor captures one beat, so allocate one slot.
+                wr_data_dut.axi_tb_WDATA = new[1];
+                wr_data_dut.axi_tb_WDATA[0] = vif.axi_tb_WDATA;
+
+                wr_data_dut.axi_tb_WSTRB = new[1];
+                wr_data_dut.axi_tb_WSTRB[0] = vif.axi_tb_WSTRB;
+
                 wr_data_dut.axi_tb_WLAST = vif.axi_tb_WLAST;
+                // Note: Using AWID here for tracking
+                wr_data_dut.axi_tb_ID = vif.axi_tb_AWID;
 
-                `uvm_info(get_type_name(), $sformatf("Monitored WRITE DATA: wdata=%0h, wstrb=%0h, wlast=%0h", wr_data_dut.axi_tb_WDATA, wr_data_dut.axi_tb_WSTRB, wr_data_dut.axi_tb_WLAST), UVM_MEDIUM)
+                `uvm_info(get_type_name(), $sformatf("Monitored WRITE DATA: WDATA=0x%0h, WSTRB=0x%0h, WLAST=0x%0h, AWID=0x%0h", wr_data_dut.axi_tb_WDATA[0], wr_data_dut.axi_tb_WSTRB[0], wr_data_dut.axi_tb_WLAST, wr_data_dut.axi_tb_ID), UVM_MEDIUM)
                 mon_wr_data_ap.write(wr_data_dut);
             end
         end
     endtask
 
-    // 3. Write Response (B Channel)
+    // Write Response (B Channel)
     virtual protected task collect_b_channel();
         forever begin
             axi_write_trans wr_resp_dut;
@@ -113,20 +121,20 @@ class axi_monitor #(
 
             if (vif.axi_tb_BVALID && vif.axi_tb_BREADY) begin
                 wr_resp_dut = axi_write_trans#(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                            .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                            .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_resp_dut");
+                                                 .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                                 .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("wr_resp_dut");
 
                 wr_resp_dut.axi_tb_BID = vif.axi_tb_BID;
                 wr_resp_dut.axi_tb_BRESP = vif.axi_tb_BRESP;
 
-                `uvm_info(get_type_name(), $sformatf("Monitored WRITE RESP: bid=%0h, bresp=%0h", wr_resp_dut.axi_tb_BID, wr_resp_dut.axi_tb_BRESP), UVM_MEDIUM)
+                `uvm_info(get_type_name(), $sformatf("Monitored WRITE RESP: BID=0x%0h, BRESP=0x%0h", wr_resp_dut.axi_tb_BID, wr_resp_dut.axi_tb_BRESP), UVM_MEDIUM)
 
                 mon_wr_resp_ap.write(wr_resp_dut);
             end
         end
     endtask
 
-    // 4. Read Address Request (AR Channel)
+    // Read Address Request (AR Channel)
     virtual protected task collect_ar_channel();
         forever begin
             axi_read_trans rd_req_dut;
@@ -135,8 +143,8 @@ class axi_monitor #(
             @(posedge vif.axi_tb_ACLK);
                 if (vif.axi_tb_ARVALID && vif.axi_tb_ARREADY) begin
                 rd_req_dut = axi_read_trans#(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                            .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                            .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rd_req_dut");
+                                                 .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                                 .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rd_req_dut");
 
                 rd_req_dut.axi_tb_ADDR = vif.axi_tb_ARADDR;
                 rd_req_dut.axi_tb_ID = vif.axi_tb_ARID;
@@ -144,13 +152,13 @@ class axi_monitor #(
                 rd_req_dut.axi_tb_SIZE = vif.axi_tb_ARSIZE;
                 rd_req_dut.axi_tb_BURST = vif.axi_tb_ARBURST;
 
-                `uvm_info(get_type_name(), $sformatf("Monitored READ REQ: araddr=%0h, arid=%0h, arlen=%0h, arsize=%0h, arburst=%0h", rd_req_dut.axi_tb_ADDR, rd_req_dut.axi_tb_ID, rd_req_dut.axi_tb_LEN, rd_req_dut.axi_tb_SIZE, rd_req_dut.axi_tb_BURST), UVM_MEDIUM)
+                `uvm_info(get_type_name(), $sformatf("Monitored READ REQ: ARADDR=0x%0h, ARID=0x%0h, ARLEN=0x%0h, ARSIZE=0x%0h, ARBURST=0x%0h", rd_req_dut.axi_tb_ADDR, rd_req_dut.axi_tb_ID, rd_req_dut.axi_tb_LEN, rd_req_dut.axi_tb_SIZE, rd_req_dut.axi_tb_BURST), UVM_MEDIUM)
                 mon_rd_req_ap.write(rd_req_dut);
             end
         end
     endtask
 
-    // 5. Read Data Stream (R Channel)
+    // Read Data (R Channel)
     virtual protected task collect_r_channel();
         forever begin
             axi_read_trans rd_data_dut;
@@ -160,15 +168,21 @@ class axi_monitor #(
 
             if (vif.axi_tb_RVALID && vif.axi_tb_RREADY) begin
                 rd_data_dut = axi_read_trans#(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH),
-                                            .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
-                                            .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rd_data_dut");
+                                                 .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH),
+                                                 .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rd_data_dut");
 
-                rd_data_dut.axi_tb_RDATA = vif.axi_tb_RDATA;
+                // axi_read_trans can hold a burst (dynamic array),
+                // but the monitor captures one beat, so allocate one slot.
+                rd_data_dut.axi_tb_RDATA = new[1];
+                rd_data_dut.axi_tb_RDATA[0] = vif.axi_tb_RDATA;
+
+                rd_data_dut.axi_tb_RRESP = new[1];
+                rd_data_dut.axi_tb_RRESP[0] = vif.axi_tb_RRESP;
+
                 rd_data_dut.axi_tb_RID = vif.axi_tb_RID;
-                rd_data_dut.axi_tb_RRESP = vif.axi_tb_RRESP;
                 rd_data_dut.axi_tb_RLAST = vif.axi_tb_RLAST;
 
-                `uvm_info(get_type_name(), $sformatf("Monitored READ DATA: rdata=%0h, rid=%0h, rresp=%0h, rlast=%0h", rd_data_dut.axi_tb_RDATA, rd_data_dut.axi_tb_RID, rd_data_dut.axi_tb_RRESP, rd_data_dut.axi_tb_RLAST), UVM_MEDIUM)
+                `uvm_info(get_type_name(), $sformatf("Monitored READ DATA: RDATA=0x%0h, RID=0x%0h, RRESP=0x%0h, RLAST=0x%0h", rd_data_dut.axi_tb_RDATA[0], rd_data_dut.axi_tb_RID, rd_data_dut.axi_tb_RRESP[0], rd_data_dut.axi_tb_RLAST), UVM_MEDIUM)
                 mon_rd_data_ap.write(rd_data_dut);
             end
         end

@@ -44,26 +44,14 @@ class axi_burst_rand_wr_rd_seq #(
         `uvm_info(get_full_name(), "Starting random AXI write sequence...", UVM_LOW)
         rand_wr_seq = axi_rand_wr_seq #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH), .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH), .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rand_wr_seq");
 
-        // // Randomize the write sequence to determine the number of writes
-        // if (!rand_wr_seq.randomize() with { rand_wr_seq.burst_num == 8;}) begin
-        //     `uvm_error(get_full_name(), "Randomization of axi_rand_wr_seq failed.")
-        //     return;
-        // end
-
-        if (!rand_wr_seq.randomize()) begin
-            `uvm_error(get_full_name(), "Randomization of axi_rand_wr_seq failed.")
-            return;
-        end
-
         // Start the writes
         rand_wr_seq.start(p_wr_sqr);
-
 
         // 2. Random Burst Reads (Run after writes are complete)
         `uvm_info(get_full_name(), "Starting coordinated random AXI read sequence...", UVM_LOW)
         rand_rd_seq = axi_rand_rd_seq #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .LEN_WIDTH(LEN_WIDTH), .SIZE_WIDTH(SIZE_WIDTH), .BURST_WIDTH(BURST_WIDTH), .RESP_WIDTH(RESP_WIDTH), .ID_WIDTH(ID_WIDTH), .STROBE_WIDTH(STROBE_WIDTH), .ADDR_BYTE_SIZE(ADDR_BYTE_SIZE))::type_id::create("rand_rd_seq");
 
-        // Pass metadata to read sequence
+        // Pass write's wr_struct_queue content to read sequence
         rand_rd_seq.wr_struct_queue = rand_wr_seq.wr_struct_queue;
 
         // Start the reads

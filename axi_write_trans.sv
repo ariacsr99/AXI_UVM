@@ -33,8 +33,8 @@ class axi_write_trans #(
     //Write data channel
     logic                    axi_tb_WVALID;
     logic                    axi_tb_WREADY;
-    randc logic [DATA_WIDTH-1:0]   axi_tb_WDATA;
-    randc logic [STROBE_WIDTH-1:0] axi_tb_WSTRB;
+    randc logic [DATA_WIDTH-1:0]   axi_tb_WDATA[]; //dynamic arrays to do burst transfer
+    randc logic [STROBE_WIDTH-1:0] axi_tb_WSTRB[];
     logic                    axi_tb_WLAST;
 
     //Write response channel
@@ -43,14 +43,60 @@ class axi_write_trans #(
     logic [ID_WIDTH-1:0]     axi_tb_BID;
     logic [RESP_WIDTH-1:0]   axi_tb_BRESP;
 
+    constraint wdata_array_size {
+        axi_tb_WDATA.size() == axi_tb_LEN + 1;
+        axi_tb_WSTRB.size() == axi_tb_LEN + 1;
+    }
+
+    // forces the WSTRB value to equal max mask (eg: 4'b1111 if SIZE=2)
+    constraint wstrb_value {
+        foreach (axi_tb_WSTRB[i]) {
+            // (1 << (1 << axi_tb_SIZE)) calculates the boundary value.
+            axi_tb_WSTRB[i] == ((1 << (1 << axi_tb_SIZE)) - 1);
+        }
+    }
+
     function new(string name = "axi_write_trans");
         super.new(name);
     endfunction
 
     function string convert2string();
-        return {super.convert2string(), $sformatf(
-        "[axi_write_trans] axi_tb_AWVALID=%0b, axi_tb_AWREADY=%0b, axi_tb_AWID=%h, axi_tb_AWADDR=%h, axi_tb_AWLEN=%h, axi_tb_AWSIZE=%h, axi_tb_AWBURST=%0b, axi_tb_WVALID=%0b, axi_tb_WREADY=%0b, axi_tb_WDATA=%h, axi_tb_WSTRB=%0b, axi_tb_WLAST=%0b, axi_tb_BVALID=%0b, axi_tb_BREADY=%0b, axi_tb_BID=%h, axi_tb_BRESP=%0b",
-        axi_tb_AWVALID, axi_tb_AWREADY, axi_tb_ID, axi_tb_ADDR, axi_tb_LEN, axi_tb_SIZE, axi_tb_BURST, axi_tb_WVALID, axi_tb_WREADY, axi_tb_WDATA, axi_tb_WSTRB, axi_tb_WLAST, axi_tb_BVALID, axi_tb_BREADY, axi_tb_BID, axi_tb_BRESP)};
-    endfunction
+        string s;
+        string wdata_str = "";
+        string wstrb_str = "";
 
+        // Loop through all data beats and format them into a single string
+        if (axi_tb_WDATA.size() > 0) begin
+            wdata_str = "WDATA: {";
+            wstrb_str = "WSTRB: {";
+            for (int i = 0; i < axi_tb_WDATA.size(); i++) begin
+                // Append WDATA element (using %h for hex data)
+                wdata_str = {wdata_str, $sformatf("0x%h", axi_tb_WDATA[i])};
+
+                // Append WSTRB element (using %b for binary strobe)
+                wstrb_str = {wstrb_str, $sformatf("'b%0b", axi_tb_WSTRB[i])};
+
+                // Add separator if not the last element
+                if (i < axi_tb_WDATA.size() - 1) begin
+                    wdata_str = {wdata_str, ", "};
+                    wstrb_str = {wstrb_str, ", "};
+                end
+            end
+            wdata_str = {wdata_str, "}"};
+            wstrb_str = {wstrb_str, "}"};
+        end else begin
+            wdata_str = "WDATA: []";
+            wstrb_str = "WSTRB: []";
+        end
+
+        // Combine all formatted information
+        $sformat(s,
+            "%s | WDATA Beats=%0d | %s | %s",
+            super.convert2string(),
+            axi_tb_WDATA.size(),
+            wdata_str,
+            wstrb_str
+        );
+        return s;
+    endfunction
 endclass

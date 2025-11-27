@@ -51,7 +51,7 @@ class axi_base_trans #(
 
     function string convert2string();
         return {super.convert2string(), $sformatf(
-        "[axi_base_trans] axi_tb_ID=%h, axi_tb_ADDR=%h, axi_tb_LEN=%h, axi_tb_SIZE=%h, axi_tb_BURST=%0b", axi_tb_ID, axi_tb_ADDR, axi_tb_LEN, axi_tb_SIZE, axi_tb_BURST)};
+        "ADDR=0x%0h, ID=0x%0h, LEN=0x%0h, SIZE=0x%0h, BURST=0x%0h", axi_tb_ADDR, axi_tb_ID, axi_tb_LEN, axi_tb_SIZE, axi_tb_BURST)};
     endfunction
 
 endclass

@@ -23,41 +23,35 @@ class axi_cov #(
     uvm_analysis_imp_AR #(axi_read_trans, axi_cov) cov_rd_req_imp;
     uvm_analysis_imp_R #(axi_read_trans, axi_cov) cov_rd_data_imp;
 
-    // Variable to store the transaction
-    axi_write_trans wr_req;
-    axi_write_trans wr_data;
-    axi_write_trans wr_resp;
-    axi_read_trans rd_req;
-    axi_read_trans rd_data;
+    logic [ADDR_WIDTH-1:0] sampled_addr;
+    logic [BURST_WIDTH-1:0] sampled_burst;
+    logic [LEN_WIDTH-1:0] sampled_len;
+    logic [SIZE_WIDTH-1:0] sampled_size;
+    logic [DATA_WIDTH-1:0] sampled_data; // Used for WDATA and RDATA sampling
 
-    covergroup axi_wr_cg;
+    // Write Configuration Coverage (Sampled on AW)
+    covergroup axi_wr_cfg_cg;
         option.per_instance = 1;
 
-        awaddr_cp : coverpoint wr_req.axi_tb_ADDR {
+        awaddr_cp : coverpoint sampled_addr {
             bins low  = {['h0:'h5555]};
             bins mid  = {['h5556:'hAAAA]};
             bins high = {['hAAAB:'hFFFF]};
         }
 
-        wdata_cp : coverpoint wr_data.axi_tb_WDATA {
-            bins low  = {['h0000_0000:'h5555_5555]};
-            bins mid  = {['h5555_5556:'hAAAA_AAAA]};
-            bins high = {['hAAAA_AAAB:'hFFFF_FFFF]};
-        }
-
-        awburst_cp : coverpoint wr_req.axi_tb_BURST {
+        awburst_cp : coverpoint sampled_burst {
             bins FIXED = {0};
             bins INCR  = {1};
             bins WRAP  = {2};
         }
 
-        awlen_cp : coverpoint wr_req.axi_tb_LEN {
-            bins single   = {0};
+        awlen_cp : coverpoint sampled_len {
+            bins single  = {0};
             bins short_burst[] = {[1:7]};
             bins long_burst[]  = {[8:15]};
         }
 
-        awsize_cp : coverpoint wr_req.axi_tb_SIZE {
+        awsize_cp : coverpoint sampled_size {
             bins size_1BYTE = {0};
             bins size_2BYTES = {1};
             bins size_4BYTES = {2};
@@ -69,36 +63,43 @@ class axi_cov #(
         awburst_X_len  : cross awburst_cp, awlen_cp;
         awlen_X_size   : cross awlen_cp, awsize_cp;
 
-    endgroup
+    endgroup // axi_wr_cfg_cg
 
-    covergroup axi_rd_cg;
+    // Write Data Coverage (Sampled on W beat)
+    covergroup axi_wdata_cg;
         option.per_instance = 1;
 
-        araddr_cp : coverpoint rd_req.axi_tb_ADDR {
+        wdata_cp : coverpoint sampled_data {
+            bins low  = {['h0000_0000:'h5555_5555]};
+            bins mid  = {['h5555_5556:'hAAAA_AAAA]};
+            bins high = {['hAAAA_AAAB:'hFFFF_FFFF]};
+        }
+    endgroup // axi_wdata_cg
+
+
+    // Read Configuration Coverage (Sampled on AR)
+    covergroup axi_rd_cfg_cg;
+        option.per_instance = 1;
+
+        araddr_cp : coverpoint sampled_addr {
             bins low  = {['h0:'h5555]};
             bins mid  = {['h5556:'hAAAA]};
             bins high = {['hAAAB:'hFFFF]};
         }
 
-        rdata_cp : coverpoint rd_data.axi_tb_RDATA {
-            bins low  = {['h0000_0000:'h5555_5555]};
-            bins mid  = {['h5555_5556:'hAAAA_AAAA]};
-            bins high = {['hAAAA_AAAB:'hFFFF_FFFF]};
-        }
-
-        arburst_cp : coverpoint rd_req.axi_tb_BURST {
+        arburst_cp : coverpoint sampled_burst {
             bins FIXED = {0};
             bins INCR  = {1};
             bins WRAP  = {2};
         }
 
-        arlen_cp : coverpoint rd_req.axi_tb_LEN {
-            bins single   = {0};
+        arlen_cp : coverpoint sampled_len {
+            bins single  = {0};
             bins short_burst[] = {[1:7]};
             bins long_burst[]  = {[8:15]};
         }
 
-        arsize_cp : coverpoint rd_req.axi_tb_SIZE {
+        arsize_cp : coverpoint sampled_size {
             bins size_1BYTE = {0};
             bins size_2BYTES = {1};
             bins size_4BYTES = {2};
@@ -110,74 +111,97 @@ class axi_cov #(
         arburst_X_len  : cross arburst_cp, arlen_cp;
         arlen_X_size   : cross arlen_cp, arsize_cp;
 
-    endgroup
+    endgroup // axi_rd_cfg_cg
+
+    // Read Data Coverage (Sampled on R beat)
+    covergroup axi_rdata_cg;
+        option.per_instance = 1;
+
+        rdata_cp : coverpoint sampled_data {
+            bins low  = {['h0000_0000:'h5555_5555]};
+            bins mid  = {['h5555_5556:'hAAAA_AAAA]};
+            bins high = {['hAAAA_AAAB:'hFFFF_FFFF]};
+        }
+    endgroup // axi_rdata_cg
+
 
     function new(string name, uvm_component parent);
         super.new(name, parent);
-        axi_wr_cg = new();
-        axi_rd_cg = new();
+        // Instantiate all covergroups
+        axi_wr_cfg_cg = new();
+        axi_wdata_cg  = new();
+        axi_rd_cfg_cg = new();
+        axi_rdata_cg  = new();
     endfunction
 
     function void build_phase(uvm_phase phase);
         super.build_phase(phase);
-        cov_wr_req_imp = new("cov_wr_req_imp", this);
+        // Instantiate IMPs
+        cov_wr_req_imp  = new("cov_wr_req_imp", this);
         cov_wr_data_imp = new("cov_wr_data_imp", this);
         cov_wr_resp_imp = new("cov_wr_resp_imp", this);
-        cov_rd_req_imp = new("cov_rd_req_imp", this);
+        cov_rd_req_imp  = new("cov_rd_req_imp", this);
         cov_rd_data_imp = new("cov_rd_data_imp", this);
     endfunction
 
-    // This is the function that the analysis port calls
+
+    // WRITE Channel IMP Implementations
+    // AW Channel: Samples Write Configuration (ADDR, LEN, BURST, SIZE)
     function void write_AW(axi_write_trans trans);
-        `uvm_info(get_type_name(), "Received write req transaction", UVM_LOW)
-        this.wr_req = trans;
-        process_write();
+        `uvm_info(get_type_name(), "Received write AW req, sampling configuration coverage.", UVM_LOW)
+
+        // Load sampled variables from the transaction
+        sampled_addr  = trans.axi_tb_ADDR;
+        sampled_burst = trans.axi_tb_BURST;
+        sampled_len   = trans.axi_tb_LEN;
+        sampled_size  = trans.axi_tb_SIZE;
+
+        // Sample the configuration covergroup
+        axi_wr_cfg_cg.sample();
     endfunction
 
+    // W Channel: Samples Write Data (WDATA) on every beat
     function void write_W(axi_write_trans trans);
-        `uvm_info(get_type_name(), "Received write data transaction", UVM_LOW)
-        this.wr_data = trans;
-        process_write();
+        `uvm_info(get_type_name(), "Received write W data beat, sampling data coverage.", UVM_LOW)
+
+        // Access index [0] as the monitor passes individual data beats in a dynamic array of size 1.
+        sampled_data = trans.axi_tb_WDATA[0];
+
+        // Sample the data covergroup
+        axi_wdata_cg.sample();
     endfunction
 
+    // B Channel: Usually only used for logging/error reporting
     function void write_B(axi_write_trans trans);
-        `uvm_info(get_type_name(), "Received write resp transaction", UVM_LOW)
-        this.wr_resp = trans;
-        process_write();
+        `uvm_info(get_type_name(), "Received write B resp.", UVM_LOW)
+        // No coverage sampling required
     endfunction
 
+
+    // READ Channel IMP Implementations
+    // AR Channel: Samples Read Configuration (ADDR, LEN, BURST, SIZE)
     function void write_AR(axi_read_trans trans);
-        `uvm_info(get_type_name(), "Received read req transaction", UVM_LOW)
-        this.rd_req = trans;
-        process_read();
+        `uvm_info(get_type_name(), "Received read AR req, sampling configuration coverage.", UVM_LOW)
+
+        // Load sampled variables from the transaction
+        sampled_addr  = trans.axi_tb_ADDR;
+        sampled_burst = trans.axi_tb_BURST;
+        sampled_len   = trans.axi_tb_LEN;
+        sampled_size  = trans.axi_tb_SIZE;
+
+        // Sample the configuration covergroup
+        axi_rd_cfg_cg.sample();
     endfunction
 
+    // R Channel: Samples Read Data (RDATA) on every beat
     function void write_R(axi_read_trans trans);
-        `uvm_info(get_type_name(), "Received read data transaction", UVM_LOW)
-        this.rd_data = trans;
-        process_read();
-    endfunction
+        `uvm_info(get_type_name(), "Received read R data beat, sampling data coverage.", UVM_LOW)
 
-    // Write transaction hook
-    // Called automatically when monitor writes
-    virtual function void process_write();
-        if (wr_req == null || wr_data == null || wr_resp == null) begin
-            `uvm_warning(get_type_name(), "Incomplete write transaction, skipping coverage sample")
-            return;
-        end else begin
-            `uvm_info(get_type_name(), "Write transaction COMPLETED, sampling coverage", UVM_MEDIUM)
-        end
-        axi_wr_cg.sample();
-    endfunction
+        // Access the scalar element at index [0]
+        sampled_data = trans.axi_tb_RDATA[0];
 
-    virtual function void process_read();
-        if (rd_req == null || rd_data == null) begin
-            `uvm_warning(get_type_name(), "Incomplete read transaction, skipping coverage sample")
-            return;
-        end else begin
-            `uvm_info(get_type_name(), "Read transaction COMPLETED, sampling coverage", UVM_MEDIUM)
-        end
-        axi_rd_cg.sample();
+        // Sample the data covergroup
+        axi_rdata_cg.sample();
     endfunction
 
 endclass

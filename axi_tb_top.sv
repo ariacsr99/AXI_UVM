@@ -65,16 +65,16 @@ module axi_tb_top ();
 
     // Calculates the number of LSBs to shift to convert byte-address to word-index.  0x0000 -> 0x0003 = index 0, 0x0004 -> 0x0007 = index 1
     // Equivalent to log2(DATA_WIDTH / 8). For 32-bit width, this returns 2.
-    function automatic integer get_addr_shift_amount();
-        integer shift = 0;
-        integer word_bytes = DATA_WIDTH / 8; //num of bytes each mem_array row can store
-        while (word_bytes > 1) begin //find N value of log2 (word_bytes) = N
-            word_bytes = word_bytes >> 1;
-            shift = shift + 1;
-        end
-        return shift;
-    endfunction
-    localparam ADDR_SHIFT = get_addr_shift_amount();
+    // function automatic integer get_addr_shift_amount();
+    //     integer shift = 0;
+    //     integer word_bytes = DATA_WIDTH / 8; //num of bytes each mem_array row can store
+    //     while (word_bytes > 1) begin //find N value of log2 (word_bytes) = N
+    //         word_bytes = word_bytes >> 1;
+    //         shift = shift + 1;
+    //     end
+    //     return shift;
+    // endfunction
+    // localparam ADDR_SHIFT = get_addr_shift_amount();
 
     //Alternative to convert hex address to mem_array index
     real num_bytes_mem_row_store = DATA_WIDTH / 8;
