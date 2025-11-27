@@ -45,7 +45,9 @@ RESULTS
 Randomized write/read burst:
 <img width="892" height="397" alt="image" src="https://github.com/user-attachments/assets/402db456-8b3e-413a-8019-c52152e7ec7a" />
 
+
 Log messages:
+
 AW REQ:
 <img width="891" height="317" alt="image" src="https://github.com/user-attachments/assets/197e333f-fbb0-4bb1-a6be-b5906e3b5ce0" />
 
@@ -60,4 +62,3 @@ AR REQ:
 
 R REQ:
 <img width="895" height="289" alt="image" src="https://github.com/user-attachments/assets/acd51344-31b0-4f2b-a172-1ea8036b4954" />
-
